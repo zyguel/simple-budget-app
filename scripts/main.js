@@ -68,9 +68,16 @@ class BudgetTracker {
     }
 
     deleteTransaction(id) {
-        this.transactions = this.transactions.filter(t => t.id !== id);
-        this.updateExpenses();
-        this.saveTransactions();
+        const transaction = this.getTransactionById(id);
+        if (transaction) {
+            this.expensesByCategory[transaction.category] -= transaction.amount;
+            if (this.expensesByCategory[transaction.category] <= 0) {
+                delete this.expensesByCategory[transaction.category];
+            }
+            this.transactions = this.transactions.filter(t => t.id !== id);
+            this.updateIncomeAndExpenses();
+            this.saveTransactions();
+        }
     }
 
     getChartData() {
@@ -94,14 +101,13 @@ class BudgetTracker {
             datasets: [{
                 label: 'Expenses',
                 data: categories.map(cat => this.expensesByCategory[cat]),
-                backgroundColor: colors, // Use random colors
-                borderColor: colors.map(color => color.replace('0.8', '1')), // Slightly different border color
+                backgroundColor: colors,
+                borderColor: colors.map(color => color.replace('0.8', '1')),
                 borderWidth: 1
             }]
         };
     }
 
-    // Load categories from localStorage
     loadCategories() {
         const storedCategories = localStorage.getItem('categories');
         if (storedCategories) {
@@ -110,15 +116,13 @@ class BudgetTracker {
         this.updateCategoryDropdown();
     }
 
-    // Save categories to localStorage
     saveCategories() {
         localStorage.setItem('categories', JSON.stringify(this.categories));
     }
 
-    // Update the category dropdown
     updateCategoryDropdown() {
         const categorySelect = document.getElementById('category');
-        categorySelect.innerHTML = '<option value="">Select Category</option>'; // Reset dropdown
+        categorySelect.innerHTML = '<option value="">Select Category</option>';
 
         this.categories.forEach(category => {
             const option = document.createElement('option');
@@ -128,7 +132,6 @@ class BudgetTracker {
         });
     }
 
-    // Add a new custom category
     addCategory(category) {
         if (category && !this.categories.includes(category)) {
             this.categories.push(category);
@@ -136,6 +139,32 @@ class BudgetTracker {
             this.updateCategoryDropdown();
         }
     }
+
+    getTransactionById(id) {
+        return this.transactions.find(t => t.id === id);
+    }
+
+    updateTransaction(id, description, amount, category) {
+        const transaction = this.getTransactionById(id);
+        if (transaction) {
+            // Adjust category spending
+            this.expensesByCategory[transaction.category] -= transaction.amount;
+            if (this.expensesByCategory[transaction.category] <= 0) {
+                delete this.expensesByCategory[transaction.category];
+            }
+    
+            // Update transaction details
+            transaction.description = description;
+            transaction.amount = parseFloat(amount);
+            transaction.category = category;
+    
+            // Update expenses and income
+            this.expensesByCategory[category] = (this.expensesByCategory[category] || 0) + transaction.amount;
+            this.updateIncomeAndExpenses();
+            this.saveTransactions();
+        }
+    }
+    
 }
 
 // Initialize Budget Tracker
@@ -145,11 +174,11 @@ let chart;
 // Function to update transaction table
 function updateTransactionTable() {
     const tbody = document.getElementById('transactionTableBody');
-    tbody.innerHTML = ''; // Clear existing rows
+    tbody.innerHTML = '';
     
     budgetTracker.getTransactions().forEach(transaction => {
         const row = document.createElement('tr');
-        row.setAttribute('data-id', transaction.id); // Add data-id attribute
+        row.setAttribute('data-id', transaction.id);
         row.innerHTML = `
             <td>${transaction.id}</td>
             <td>${transaction.date.toLocaleDateString()}</td>
@@ -157,7 +186,8 @@ function updateTransactionTable() {
             <td>$${transaction.amount.toFixed(2)}</td>
             <td>${transaction.category}</td>
             <td>
-                <button class="text-red-600 hover:text-red-800 mr-2" onclick="deleteTransaction(${transaction.id})">Delete</button>
+                <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="editTransaction(${transaction.id})">Edit</button>
+                <button class="text-red-600 hover:text-red-800" onclick="deleteTransaction(${transaction.id})">Delete</button>
             </td>
         `;
         tbody.appendChild(row);
@@ -173,15 +203,15 @@ function updateChart() {
     } else {
         const ctx = document.getElementById('myChart').getContext('2d');
         chart = new Chart(ctx, {
-            type: 'doughnut', // Change to 'pie' for a pie chart
+            type: 'doughnut',
             data: chartData,
             options: {
                 responsive: true,
-                maintainAspectRatio: false, // Allow chart to fill container
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
                         display: true,
-                        position: 'top', // Position of the legend
+                        position: 'top',
                     },
                     tooltip: {
                         callbacks: {
@@ -200,66 +230,81 @@ function updateChart() {
     }
 }
 
+
 // Function to delete a transaction
 function deleteTransaction(id) {
     budgetTracker.deleteTransaction(id);
-    
-    // Remove the row from the table
-    const row = document.querySelector(`tr[data-id="${id}"]`);
-    if (row) row.remove();
-    
-    // Update chart data
+    document.querySelector(`tr[data-id="${id}"]`).remove();
     updateChart();
+}
+
+// Function to edit a transaction
+function editTransaction(id) {
+    const transaction = budgetTracker.getTransactionById(id);
+    if (transaction) {
+        document.getElementById('description').value = transaction.description;
+        document.getElementById('amount').value = transaction.amount.toFixed(2);
+        document.getElementById('category').value = transaction.category;
+        document.getElementById('transactionForm').setAttribute('data-edit-id', id);
+        document.getElementById('addTransaction').textContent = 'Update Transaction';
+    }
 }
 
 // Handle form submission
 document.getElementById('transactionForm').addEventListener('submit', (event) => {
-    event.preventDefault(); // Prevent default form submission behavior
+    event.preventDefault();
     
     const description = document.getElementById('description').value;
     const amount = document.getElementById('amount').value;
     const category = document.getElementById('category').value;
-    const newCategory = document.getElementById('newCategory').value.trim();
-    
-    console.log("Attempting to add transaction:", description, amount, category);
+    const editId = document.getElementById('transactionForm').getAttribute('data-edit-id');
 
     if (description && amount && category) {
         try {
-            if (newCategory) {
-                budgetTracker.addCategory(newCategory);
-                document.getElementById('newCategory').value = ''; // Clear new category input
+            if (editId) {
+                budgetTracker.updateTransaction(editId, description, amount, category);
+                document.getElementById('transactionForm').removeAttribute('data-edit-id');
+                document.getElementById('addTransaction').textContent = 'Add Transaction';
+            } else {
+                budgetTracker.addTransaction(description, amount, category);
             }
 
-            const transaction = budgetTracker.addTransaction(description, amount, category);
-            console.log(`Added transaction: ${JSON.stringify(transaction)}`);
-
-            // Clear form fields
             document.getElementById('description').value = '';
             document.getElementById('amount').value = '';
             document.getElementById('category').value = '';
 
-            // Update transaction table
             updateTransactionTable();
-
-            // Update chart data
             updateChart();
         } catch (error) {
-            console.error("Error adding transaction:", error);
-            alert("Failed to add transaction. Please check your inputs.");
+            console.error("Error handling transaction:", error);
+            alert("Failed to handle transaction. Please check your inputs.");
         }
     } else {
-        console.log("Not all fields were filled");
-        alert('Please fill out all fields before adding a transaction.');
+        alert('Please fill out all fields before submitting.');
     }
-
-    console.log("Current transactions:", budgetTracker.getTransactions());
 });
 
-// Initialize UI on DOMContentLoaded
-document.addEventListener('DOMContentLoaded', () => {
-    // Populate transaction table
-    updateTransactionTable();
 
-    // Initialize chart
-    updateChart();
+// Handle opening and closing of the modal
+document.getElementById('openModal').addEventListener('click', () => {
+    document.getElementById('modal-addCategory').classList.remove('hidden');
 });
+
+document.getElementById('closeModal').addEventListener('click', () => {
+    document.getElementById('modal-addCategory').classList.add('hidden');
+});
+
+document.getElementById('saveCategory').addEventListener('click', () => {
+    const newCategory = document.getElementById('modalNewCategory').value.trim();
+    if (newCategory) {
+        budgetTracker.addCategory(newCategory);
+        document.getElementById('modalNewCategory').value = '';
+        document.getElementById('modal-addCategory').classList.add('hidden');
+    } else {
+        alert('Please enter a category name.');
+    }
+});
+
+// Initial Render
+updateTransactionTable();
+updateChart();
