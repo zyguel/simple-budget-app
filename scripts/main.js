@@ -1,4 +1,3 @@
-// Data Structures
 class Transaction {
     constructor(id, date, description, amount, category) {
         this.id = id;
@@ -13,8 +12,6 @@ class BudgetTracker {
     constructor() {
         this.transactions = [];
         this.expensesByCategory = {};
-        this.income = 0;
-        this.expensesTotal = 0;
         this.currentId = 0;
         this.categories = ["Housing", "Transportation", "Food", "Entertainment", "Utilities", "Miscellaneous"];
 
@@ -63,10 +60,6 @@ class BudgetTracker {
         });
     }
 
-    getTransactions() {
-        return [...this.transactions];
-    }
-
     deleteTransaction(id) {
         const transaction = this.getTransactionById(id);
         if (transaction) {
@@ -80,21 +73,40 @@ class BudgetTracker {
         }
     }
 
-    getChartData() {
-        const categories = Object.keys(this.expensesByCategory).sort((a, b) => this.expensesByCategory[b] - this.expensesByCategory[a]);
-
-        // Function to generate random color
-        const getRandomColor = () => {
-            const letters = '0123456789ABCDEF';
-            let color = '#';
-            for (let i = 0; i < 6; i++) {
-                color += letters[Math.floor(Math.random() * 16)];
+    updateTransaction(id, description, amount, category) {
+        const transaction = this.getTransactionById(parseInt(id));
+        if (transaction) {
+            // Update fields that are provided and valid
+            if (description.trim()) {
+                transaction.description = description;
             }
-            return color;
-        };
+            if (!isNaN(amount) && amount !== "") {
+                transaction.amount = parseFloat(amount);
+            }
+            if (category) {
+                transaction.category = category;
+            }
+    
+            this.updateExpenses();
+            this.updateIncomeAndExpenses();
+            this.saveTransactions();
+    
+            return transaction;
+        }
+        return null;
+    }
 
-        // Generate random colors for each category
-        const colors = categories.map(() => getRandomColor());
+
+    
+
+    getTransactionById(id) {
+        return this.transactions.find(t => t.id === id);
+    }
+
+    getChartData() {
+        const categories = Object.keys(this.expensesByCategory);
+
+        const colors = categories.map(() => `#${Math.floor(Math.random()*16777215).toString(16)}`);
 
         return {
             labels: categories,
@@ -102,7 +114,7 @@ class BudgetTracker {
                 label: 'Expenses',
                 data: categories.map(cat => this.expensesByCategory[cat]),
                 backgroundColor: colors,
-                borderColor: colors.map(color => color.replace('0.8', '1')),
+                borderColor: colors,
                 borderWidth: 1
             }]
         };
@@ -139,44 +151,35 @@ class BudgetTracker {
             this.updateCategoryDropdown();
         }
     }
-
-    getTransactionById(id) {
-        return this.transactions.find(t => t.id === id);
-    }
-
-    updateTransaction(id, description, amount, category) {
-        const transaction = this.getTransactionById(id);
-        if (transaction) {
-            // Adjust category spending
-            this.expensesByCategory[transaction.category] -= transaction.amount;
-            if (this.expensesByCategory[transaction.category] <= 0) {
-                delete this.expensesByCategory[transaction.category];
-            }
-    
-            // Update transaction details
-            transaction.description = description;
-            transaction.amount = parseFloat(amount);
-            transaction.category = category;
-    
-            // Update expenses and income
-            this.expensesByCategory[category] = (this.expensesByCategory[category] || 0) + transaction.amount;
-            this.updateIncomeAndExpenses();
-            this.saveTransactions();
-        }
-    }
-    
 }
 
 // Initialize Budget Tracker
-const budgetTracker = new BudgetTracker();
+let budgetTracker = new BudgetTracker();
 let chart;
 
-// Function to update transaction table
+// Event listener for adding a transaction
+document.getElementById('transactionForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const description = document.getElementById('description').value;
+    const amount = parseFloat(document.getElementById('amount').value); // Ensure the amount is parsed as a float
+    const category = document.getElementById('category').value;
+
+    if (description && !isNaN(amount) && category) {
+        const transaction = budgetTracker.addTransaction(description, amount, category);
+        updateTransactionTable();
+        updateChart();
+        this.reset();  // Reset form after submission
+    } else {
+        alert('Please fill out all fields.');
+    }
+});
+
+// Function to update the transaction table
 function updateTransactionTable() {
     const tbody = document.getElementById('transactionTableBody');
     tbody.innerHTML = '';
     
-    budgetTracker.getTransactions().forEach(transaction => {
+    budgetTracker.transactions.forEach(transaction => {
         const row = document.createElement('tr');
         row.setAttribute('data-id', transaction.id);
         row.innerHTML = `
@@ -186,7 +189,7 @@ function updateTransactionTable() {
             <td>$${transaction.amount.toFixed(2)}</td>
             <td>${transaction.category}</td>
             <td>
-                <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="editTransaction(${transaction.id})">Edit</button>
+                <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="openEditTransactionModal(${transaction.id})">Edit</button>
                 <button class="text-red-600 hover:text-red-800" onclick="deleteTransaction(${transaction.id})">Delete</button>
             </td>
         `;
@@ -194,7 +197,7 @@ function updateTransactionTable() {
     });
 }
 
-// Function to update chart data
+// Function to update the chart data
 function updateChart() {
     const chartData = budgetTracker.getChartData();
     if (chart) {
@@ -209,83 +212,82 @@ function updateChart() {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(tooltipItem) {
-                                return `${tooltipItem.label}: $${tooltipItem.raw.toFixed(2)}`;
-                            }
-                        }
-                    },
-                    title: {
-                        display: true,
-                        text: 'Expenses by Category'
-                    }
+                    legend: { display: true, position: 'top' },
+                    title: { display: true, text: 'Expenses by Category' },
                 }
             }
         });
     }
 }
 
-
-// Function to delete a transaction
+// Delete transaction
 function deleteTransaction(id) {
     budgetTracker.deleteTransaction(id);
-    document.querySelector(`tr[data-id="${id}"]`).remove();
+    updateTransactionTable();
     updateChart();
 }
 
-// Function to edit a transaction
-function editTransaction(id) {
-    const transaction = budgetTracker.getTransactionById(id);
+// Edit transaction modal logic
+function openEditTransactionModal(id) {
+    const transaction = budgetTracker.getTransactionById(parseInt(id));
     if (transaction) {
-        document.getElementById('description').value = transaction.description;
-        document.getElementById('amount').value = transaction.amount.toFixed(2);
-        document.getElementById('category').value = transaction.category;
-        document.getElementById('transactionForm').setAttribute('data-edit-id', id);
-        document.getElementById('addTransaction').textContent = 'Update Transaction';
+        document.getElementById('modalEditDescription').value = transaction.description;
+        document.getElementById('modalEditAmount').value = transaction.amount.toFixed(2);
+
+        // Clear and populate the modal's category dropdown
+        const modalCategorySelect = document.getElementById('modalEditCategory');
+        modalCategorySelect.innerHTML = ''; // Clear the existing options
+
+        // Add categories to the modal's dropdown
+        budgetTracker.categories.forEach(category => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
+            if (category === transaction.category) {
+                option.selected = true; // Set the current transaction's category as selected
+            }
+            modalCategorySelect.appendChild(option);
+        });
+
+        // Set the transaction ID to the Save button
+        document.getElementById('saveEditTransaction').setAttribute('data-id', id);
+
+        document.getElementById('modal-editTransaction').classList.remove('hidden');
     }
 }
 
-// Handle form submission
-document.getElementById('transactionForm').addEventListener('submit', (event) => {
-    event.preventDefault();
-    
-    const description = document.getElementById('description').value;
-    const amount = document.getElementById('amount').value;
-    const category = document.getElementById('category').value;
-    const editId = document.getElementById('transactionForm').getAttribute('data-edit-id');
 
-    if (description && amount && category) {
-        try {
-            if (editId) {
-                budgetTracker.updateTransaction(editId, description, amount, category);
-                document.getElementById('transactionForm').removeAttribute('data-edit-id');
-                document.getElementById('addTransaction').textContent = 'Add Transaction';
-            } else {
-                budgetTracker.addTransaction(description, amount, category);
-            }
+// Save edited transaction
+document.getElementById('saveEditTransaction').addEventListener('click', () => {
+    const id = document.getElementById('saveEditTransaction').getAttribute('data-id');
+    const description = document.getElementById('modalEditDescription').value.trim();
+    const amount = document.getElementById('modalEditAmount').value.trim();
+    const category = document.getElementById('modalEditCategory').value;
 
-            document.getElementById('description').value = '';
-            document.getElementById('amount').value = '';
-            document.getElementById('category').value = '';
-
+    if (id && (description || amount || category)) {
+        const updatedTransaction = budgetTracker.updateTransaction(parseInt(id), description, amount, category);
+        if (updatedTransaction) {
             updateTransactionTable();
             updateChart();
-        } catch (error) {
-            console.error("Error handling transaction:", error);
-            alert("Failed to handle transaction. Please check your inputs.");
+            document.getElementById('modal-editTransaction').classList.add('hidden');
+        } else {
+            alert('Failed to update transaction. Please try again.');
         }
     } else {
-        alert('Please fill out all fields before submitting.');
+        alert('Please fill out at least one field.');
     }
 });
 
 
-// Handle opening and closing of the modal
+
+
+
+// Close edit transaction modal
+document.getElementById('closeEditModal').addEventListener('click', () => {
+    document.getElementById('modal-editTransaction').classList.add('hidden');
+});
+
+// Add category modal logic
 document.getElementById('openModal').addEventListener('click', () => {
     document.getElementById('modal-addCategory').classList.remove('hidden');
 });
@@ -305,6 +307,6 @@ document.getElementById('saveCategory').addEventListener('click', () => {
     }
 });
 
-// Initial Render
+// Initial load
 updateTransactionTable();
 updateChart();
